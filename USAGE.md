@@ -9,6 +9,7 @@ Complete command-line reference for SEMAR, with flags, exit codes, and recipes.
 - [`semar list`](#semar-list)
 - [`semar version`](#semar-version)
 - [Exit codes](#exit-codes)
+- [Auditing specific agents](#auditing-specific-agents)
 - [Recipes](#recipes)
 - [The `.semar.yml` config file](#the-semaryml-config-file)
 - [Baselines & suppression](#baselines--suppression)
@@ -161,6 +162,103 @@ never change semantics within a major version.
 | `1` | Scan completed; findings found at or above `--fail-on` (or `--fail-on-count`) |
 | `2` | Scan error (invalid target, module failure, timeout) |
 | `3` | Configuration error (invalid flags, missing required args) |
+
+---
+
+## Auditing specific agents
+
+SEMAR auto-detects the agent type from filesystem markers, so `semar audit
+--target <dir>` usually just works. Use `--agent` to force a type when detection
+is ambiguous or when you point SEMAR at a non-standard location.
+
+> **Tip — avoid scanning conversation logs.** Some agents keep large plaintext
+> history/cache directories next to their config (e.g. Claude Code's `projects/`,
+> `history.jsonl`, `file-history/`, caches). Scanning those produces a flood of
+> low-value high-entropy "secret" hits. Point SEMAR at the **config directory or
+> file**, not the whole home folder, for a clean, fast result.
+
+### Claude Code (Anthropic)
+
+Config lives in `~/.claude/` (user scope) and `.claude/` (project scope), plus
+`CLAUDE.md` and `.mcp.json`.
+
+```bash
+# Project-scoped config (recommended — clean, no logs)
+semar audit --target ./.claude --agent claude-code
+
+# Include the project's CLAUDE.md and .mcp.json (audit the repo root)
+semar audit --target . --agent claude-code
+
+# User-scoped settings only (avoid ~/.claude logs/caches)
+semar audit --target ~/.claude/settings.json --agent claude-code   # single file
+# or audit the whole user dir, then ignore the noise (see note above)
+semar audit --target ~/.claude --agent claude-code --severity HIGH
+```
+
+### OpenAI Codex / ChatGPT
+
+Looks for `openai.json`, `.codex/`, and assistant/tool definition files.
+
+```bash
+semar audit --target . --agent codex
+semar audit --target ~/.codex --agent codex --output html --file codex-report.html
+```
+
+### OpenCode
+
+OpenCode uses an MCP-style config (`opencode.json` / `.opencode/`,
+`AGENTS.md`). It is audited through the **generic MCP** profile:
+
+```bash
+semar audit --target . --agent generic-mcp
+semar audit --target ~/.config/opencode --agent generic-mcp
+```
+
+### Cursor IDE
+
+Detects `.cursorrules`, `.cursor/mcp.json`, and `.cursor/rules`.
+
+```bash
+semar audit --target . --agent cursor
+semar audit --target ./.cursor --agent cursor --modules config,prompt-injection,supply-chain
+```
+
+### GitHub Copilot
+
+Detects `.github/copilot-instructions.md` and Copilot config.
+
+```bash
+semar audit --target . --agent copilot --modules prompt-injection,secrets
+```
+
+### Hermes (Nous Research)
+
+Detects `hermes.json`, `hermes.yaml`, `inference.yaml`.
+
+```bash
+semar audit --target /opt/hermes --agent hermes --modules secrets,config,network
+```
+
+### Any MCP-compatible agent (generic)
+
+For agents SEMAR doesn't have a named profile for (custom agents, other MCP
+clients), force the generic MCP profile. It scans `mcp.json` / `mcp_config.json`
+/ `.mcp.json`, tool definitions, and any config/instruction files it finds.
+
+```bash
+semar audit --target ./my-agent --agent generic-mcp
+```
+
+### Auditing several agents at once
+
+```bash
+for a in claude-code codex cursor copilot generic-mcp; do
+  semar audit --target . --agent "$a" -o json -f "report-$a.json" 2>/dev/null
+done
+```
+
+> If you don't pass `--agent`, SEMAR picks the best-matching profile
+> automatically — run `semar list agents` to see all supported types.
 
 ---
 
